@@ -1,5 +1,4 @@
 <?php
-// app/Models/Article.php (Fixed)
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -26,7 +25,10 @@ class Article extends Model
         'rating',
         'rating_count',
         'gallery_count',
-        'attachment_path'
+        'attachment_path',
+        'attachment_name',
+        'attachment_size',
+        'visibility'
     ];
 
     protected $casts = [
@@ -43,52 +45,157 @@ class Article extends Model
     protected $appends = [
         'primary_image',
         'excerpt',
-        'attachment_url'
+        'attachment_url',
+        'can_access'
     ];
 
-    /**
-     * Relationship with Category
-     */
+    public function divisions()
+    {
+        return $this->belongsToMany(
+            MDivision::class,
+            'article_divisions',
+            'article_id',
+            'division_id'
+        )->where('type', 'division');
+    }
+
+    public function userCanAccess($user = null)
+    {
+        if ($this->visibility === 'public') {
+            return true;
+        }
+
+        if (!$user) {
+            return false;
+        }
+
+        if ($user->role === 'admin') {
+            return true;
+        }
+
+        if ($this->user_id === $user->id) {
+            return true;
+        }
+
+        if (!$this->relationLoaded('divisions')) {
+            $this->load('divisions');
+        }
+        if (!$this->relationLoaded('departments')) {
+            $this->load('departments');
+        }
+
+        $allowedDivisions = $this->divisions->pluck('id')->toArray();
+        $allowedDepartments = $this->departments->pluck('id')->toArray();
+
+        if (empty($allowedDivisions) && empty($allowedDepartments)) {
+            return true;
+        }
+
+        // ✅ PERBAIKAN: Gunakan nama kolom yang benar
+        $hasDivisionAccess = !empty($allowedDivisions)
+            && in_array($user->divisi_id, $allowedDivisions);
+
+        $hasDepartmentAccess = !empty($allowedDepartments)
+            && in_array($user->departemen_id, $allowedDepartments);
+
+        return $hasDivisionAccess || $hasDepartmentAccess;
+    }
+
+    public function departments()
+    {
+        return $this->belongsToMany(
+            MDivision::class,
+            'article_departments',
+            'article_id',
+            'department_id'
+        )->where('type', 'department');
+    }
+
+    public function getCanAccessAttribute()
+    {
+        if ($this->visibility === 'public') {
+            return true;
+        }
+
+        if (!auth()->check()) {
+            return false;
+        }
+
+        $user = auth()->user();
+
+        // Admin bisa akses semua
+        if ($user->role === 'admin') {
+            return true;
+        }
+
+        $allowedDivisions = $this->divisions->pluck('id')->toArray();
+        $hasDivisionAccess = !empty($allowedDivisions) && in_array($user->division_id, $allowedDivisions);
+
+        $allowedDepartments = $this->departments->pluck('id')->toArray();
+        $hasDepartmentAccess = !empty($allowedDepartments) && in_array($user->department_id, $allowedDepartments);
+
+        if (empty($allowedDivisions) && empty($allowedDepartments)) {
+            return true; // Private tapi tidak ada restriction
+        }
+
+        return $hasDivisionAccess || $hasDepartmentAccess;
+    }
+
+    public function scopeAccessible($query, $user = null)
+    {
+        $user = $user ?? auth()->user();
+
+        return $query->where(function ($q) use ($user) {
+            $q->where('visibility', 'public');
+
+            if ($user) {
+                $q->orWhere(function ($subQuery) use ($user) {
+                    $subQuery->where('visibility', 'private')
+                        ->where(function ($accessQuery) use ($user) {
+                            if ($user->role === 'admin') {
+                                return;
+                            }
+
+                            $accessQuery->whereHas('divisions', function ($divQuery) use ($user) {
+                                $divQuery->where('m_division.id', $user->division_id);
+                            })
+                            ->orWhereHas('departments', function ($deptQuery) use ($user) {
+                                $deptQuery->where('m_division.id', $user->department_id);
+                            })
+                            ->orWhereDoesntHave('divisions', function ($divQuery) {
+                            })
+                            ->whereDoesntHave('departments', function ($deptQuery) {
+                            });
+                        });
+                });
+            }
+        });
+    }
     public function category()
     {
         return $this->belongsTo(Category::class);
     }
 
-    /**
-     * Relationship with User (author)
-     */
     public function user()
     {
         return $this->belongsTo(User::class);
     }
 
-    /**
-     * Relationship with Article Gallery
-     */
     public function gallery()
     {
         return $this->hasMany(ArticleGallery::class);
     }
 
-    /**
-     * Relationship with Ratings
-     */
     public function ratings()
     {
         return $this->hasMany(ArticleRating::class);
     }
 
-    /**
-     * Get the primary gallery image
-     */
     public function primaryImage()
     {
         return $this->hasOne(ArticleGallery::class)->where('is_primary', true);
     }
 
-    /**
-     * Get primary image URL attribute
-     */
     public function getPrimaryImageAttribute()
     {
         $primaryImage = $this->primaryImage()->first();
@@ -105,9 +212,6 @@ class Article extends Model
         return $this->hasMany(ArticleGallery::class)->orderBy('sort_order', 'asc');
     }
 
-    /**
-     * Get article excerpt
-     */
     public function getExcerptAttribute()
     {
         if ($this->description) {
@@ -121,9 +225,6 @@ class Article extends Model
             : strip_tags($this->content);
     }
 
-    /**
-     * Scope for published articles
-     */
     public function scopePublished($query)
     {
         return $query->where('status', 'published')
@@ -131,33 +232,21 @@ class Article extends Model
                     ->where('published_at', '<=', now());
     }
 
-    /**
-     * Scope for draft articles
-     */
     public function scopeDraft($query)
     {
         return $query->where('status', 'draft');
     }
 
-    /**
-     * Scope by type
-     */
     public function scopeByType($query, $type)
     {
         return $query->where('type', $type);
     }
 
-    /**
-     * Scope by category
-     */
     public function scopeByCategory($query, $categoryId)
     {
         return $query->where('category_id', $categoryId);
     }
 
-    /**
-     * Search scope
-     */
     public function scopeSearch($query, $search)
     {
         return $query->where(function ($q) use ($search) {
@@ -227,6 +316,7 @@ class Article extends Model
             $this->increment('view_count');
         }
     }
+
     public function updateRating()
     {
         $ratings = $this->ratings()
@@ -269,5 +359,4 @@ class Article extends Model
 
         return round($bytes, $precision) . ' ' . $units[$pow];
     }
-
 }

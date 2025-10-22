@@ -1,5 +1,5 @@
 <?php
-// app/Models/User.php
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -12,11 +12,20 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, Notifiable;
 
     protected $fillable = [
-        'name', 'email', 'password', 'role', 'avatar', 'position', 'moto'
+        'name',
+        'email',
+        'password',
+        'role',
+        'avatar',
+        'position',
+        'moto',
+        'departemen_id',
+        'divisi_id'
     ];
 
     protected $hidden = [
-        'password', 'remember_token',
+        'password',
+        'remember_token',
     ];
 
     protected $casts = [
@@ -24,23 +33,30 @@ class User extends Authenticatable
         'password' => 'hashed',
     ];
 
-    public function articles()
+    protected $appends = ['avatar_url'];
+
+    public function department()
     {
-        return $this->hasMany(Article::class);
+        return $this->belongsTo(MDivision::class, 'departemen_id');
     }
 
-    public function ratings()
+    public function division()
     {
-        return $this->hasMany(ArticleRating::class);
-    }
-
-    public function views()
-    {
-        return $this->hasMany(ArticleView::class);
+        return $this->belongsTo(MDivision::class, 'divisi_id');
     }
 
     public function isAdmin()
     {
         return $this->role === 'admin';
+    }
+
+    public function getAvatarUrlAttribute()
+    {
+        return $this->avatar ? asset('storage/' . $this->avatar) : null;
+    }
+
+    public function articles()
+    {
+        return $this->hasMany(Article::class);
     }
 }

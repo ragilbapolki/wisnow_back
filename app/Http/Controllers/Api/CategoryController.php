@@ -11,14 +11,15 @@ class CategoryController extends Controller
     public function index()
     {
         $categories = Category::select('categories.*')
-            ->withCount([
-                'articles' => function ($query) {
-                    $query->where('status', 'published');
-                }
-            ])
-            ->having('articles_count', '>', 0)
-            ->orderBy('articles_count', 'desc')
+            ->withCount(['articles' => function ($query) {
+                $query->where('status', 'published');
+            }])
             ->get()
+            ->filter(function ($category) {
+                return $category->articles_count > 0;
+            })
+            ->sortByDesc('articles_count')
+            ->values()
             ->map(function ($category) {
                 return [
                     'id' => $category->id,

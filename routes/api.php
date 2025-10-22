@@ -6,10 +6,12 @@ use App\Http\Controllers\Api\{
     ArticleController,
     CategoryController,
     AuthController,
-    ArticleGalleryController
+    ArticleGalleryController,
+    UserController
 };
 use App\Http\Controllers\Api\Admin\{
     DashboardController,
+    DivisionController,
     ArticleController as AdminArticleController,
     CategoryController as AdminCategoryController,
     UserController as AdminUserController,
@@ -24,19 +26,18 @@ use App\Http\Controllers\Api\Admin\{
 
 // API v1
 Route::prefix('v1')->group(function () {
-
-    /** -----------------------
-     *  Public Routes
-     *  -----------------------
-     */
     // Articles
     Route::get('articles', [ArticleController::class, 'index']);
-    Route::get('articles/{slug}', [ArticleController::class, 'show']);
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::get('articles/{slug}', [ArticleController::class, 'show']);
+        Route::get('editor/articles', [ArticleController::class, 'indexEditor']);
+    });
 
     Route::get('articles/{article}/download', [ArticleController::class, 'downloadAttachment']);
 
     // Categories
     Route::get('categories', [CategoryController::class, 'index']);
+    Route::get('users/penulis', [ArticleController::class, 'indexPenulis']);
 
     // Authentication
     Route::post('login', [AuthController::class, 'login']);
@@ -64,19 +65,23 @@ Route::prefix('v1')->group(function () {
         // Article interactions
         Route::post('articles/{article}/rate', [ArticleController::class, 'rate']);
         Route::post('articles/gallery/upload', [ArticleController::class, 'uploadGallery']);
+
+        Route::prefix('profile')->group(function () {
+            Route::get('/', [UserController::class, 'show']);
+            Route::put('/', [UserController::class, 'update']);
+            Route::put('/password', [UserController::class, 'updatePassword']);
+            Route::post('/avatar', [UserController::class, 'uploadAvatar']);
+            Route::delete('/avatar', [UserController::class, 'deleteAvatar']);
+            Route::put('/moto', [UserController::class, 'updateMoto']);
+        });
     });
 
-    /** -----------------------
-     *  Admin Routes
-     *  -----------------------
-     */
     Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
         // Dashboard
         Route::get('dashboard', [DashboardController::class, 'index']);
         Route::get('articles/{articleId}/gallery', [ArticleGalleryController::class, 'getArticleImages']);
         Route::get('articles/{article}/download', [ArticleController::class, 'downloadAttachment']);
 
-        // CRUD Management
         Route::apiResource('articles', AdminArticleController::class);
         Route::post('articles/link-images', [ArticleController::class, 'linkImages']);
         Route::apiResource('categories', AdminCategoryController::class);
@@ -97,6 +102,18 @@ Route::prefix('v1')->group(function () {
                 Route::delete('{imageId}', [AdminArticleGalleryController::class, 'deleteImage']);
                 Route::put('{imageId}/set-primary', [AdminArticleGalleryController::class, 'setPrimaryImage']);
             });
+
         });
+
+        Route::prefix('admin/users')->middleware(['auth:sanctum'])->group(function () {
+            Route::get('/', [UserController::class, 'index']);
+            Route::post('/', [UserController::class, 'store']);
+            Route::get('/{user}', [UserController::class, 'show']);
+            Route::put('/{user}', [UserController::class, 'update']);
+            Route::delete('/{user}', [UserController::class, 'destroy']);
+            Route::post('/{user}/avatar', [UserController::class, 'uploadAvatar']);
+            Route::delete('/{user}/avatar', [UserController::class, 'deleteAvatar']);
+        });
+        Route::apiResource('divisions', DivisionController::class);
     });
 });

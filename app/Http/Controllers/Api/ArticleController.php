@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Models\Article;
 use App\Models\Category;
 use Illuminate\Http\Request;
@@ -24,6 +25,10 @@ class ArticleController extends Controller
 
         if ($request->type) {
             $query->where('type', $request->type);
+        }
+
+        if ($request->penulis) {
+            $query->where('user_id', $request->penulis);
         }
 
         if ($request->search) {
@@ -57,7 +62,6 @@ class ArticleController extends Controller
             return response()->json(['data' => $articles]);
         }
 
-        // ✅ PAGINATION dengan metadata eksplisit
         $perPage = $request->input('per_page', 12);
         $page = $request->input('page', 1);
 
@@ -69,7 +73,6 @@ class ArticleController extends Controller
             return $this->formatArticleResponse($article);
         });
 
-        // ✅ Build response dengan semua metadata
         return response()->json([
             'data' => $formattedArticles->values(),
             'current_page' => $paginated->currentPage(),
@@ -86,35 +89,93 @@ class ArticleController extends Controller
         ]);
     }
 
+    public function indexEditor(Request $request)
+    {
+        $user = auth()->user();
+        $query = Article::with(['category', 'user', 'divisions', 'departments'])
+            ->published();
+        if ($user && $user->role === 'editor') {
+            $query->where('user_id', $user->id);
+        }
+        if ($request->has('category')) {
+            $query->whereHas('category', function ($q) use ($request) {
+                $q->where('slug', $request->category);
+            });
+        }
+        if ($request->has('type')) {
+            $query->where('type', $request->type);
+        }
+        if ($request->has('visibility')) {
+            $query->where('visibility', $request->visibility);
+        }
+        if ($request->has('search')) {
+            $query->search($request->search);
+        }
+        if ($request->has('check_access') && $request->check_access) {
+            $query->accessible($user);
+        }
+        $sortBy = $request->get('sort_by', 'created_at');
+        $sortOrder = $request->get('sort_order', 'desc');
+        if ($sortBy === 'popular') {
+            $query->orderBy('view_count', 'desc');
+        } elseif ($sortBy === 'rating') {
+            $query->orderBy('rating', 'desc');
+        } else {
+            $query->orderBy($sortBy, $sortOrder);
+        }
+        $articles = $query->paginate($request->get('per_page', 12));
+        return response()->json([
+            'success' => true,
+            'data' => $articles
+        ]);
+    }
+
     public function show($slug, Request $request)
     {
-        $article = Article::with(['category', 'user', 'ratings.user'])
-            ->where('slug', $slug)
-            ->published()
-            ->firstOrFail();
+        $article = Article::with([
+            'category',
+            'user',
+            'ratings.user',
+            'divisions',
+            'departments'
+        ])
+        ->where('slug', $slug)
+        ->published()
+        ->firstOrFail();
 
-        // Increment view count
-        $article->incrementViewCount(
-            auth()->id(),
-            $request->ip()
-        );
+        if (!$article->userCanAccess(auth()->user())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Anda tidak memiliki akses ke artikel ini. Artikel ini hanya dapat diakses oleh divisi atau departemen tertentu.',
+                'required_access' => [
+                    'visibility' => $article->visibility,
+                    'divisions' => $article->divisions->pluck('name'),
+                    'departments' => $article->departments->pluck('name')
+                ]
+            ], 403);
+        }
 
+        $article->incrementViewCount(auth()->id(), $request->ip());
         $article->refresh();
 
-        // Get related articles
         $relatedArticles = Article::published()
+            ->with(['category', 'user', 'divisions', 'departments'])
             ->where('category_id', $article->category_id)
             ->where('id', '!=', $article->id)
             ->orderBy('view_count', 'desc')
-            ->limit(3)
+            ->limit(10)
             ->get()
+            ->filter(function ($relatedArticle) {
+                return $relatedArticle->userCanAccess(auth()->user());
+            })
+            ->take(3)
             ->map(function ($relatedArticle) {
                 return $this->formatArticleResponse($relatedArticle);
             });
 
         return response()->json([
             'article' => $this->formatArticleResponse($article),
-            'related_articles' => $relatedArticles
+            'related_articles' => $relatedArticles->values()
         ]);
     }
 
@@ -184,6 +245,7 @@ class ArticleController extends Controller
             'type' => $article->type,
             'document_type' => $article->document_type,
             'status' => $article->status,
+            'visibility' => $article->visibility ?? 'public', // ✅ TAMBAHKAN
             'view_count' => (int) ($article->view_count ?? 0),
             'rating' => (float) ($article->rating ?? 0.0),
             'rating_count' => (int) ($article->rating_count ?? 0),
@@ -195,26 +257,41 @@ class ArticleController extends Controller
             'attachment_size' => $article->attachment_size,
             'created_at' => $article->created_at,
             'updated_at' => $article->updated_at,
+
+
+            'divisions' => $article->divisions ? $article->divisions->map(function ($div) {
+                return [
+                    'id' => $div->id,
+                    'name' => $div->name,
+                ];
+            }) : [],
+
+            'departments' => $article->departments ? $article->departments->map(function ($dept) {
+                return [
+                    'id' => $dept->id,
+                    'name' => $dept->name,
+                ];
+            }) : [],
+
             'category' => $article->category ? [
                 'id' => $article->category->id,
                 'name' => $article->category->name,
                 'slug' => $article->category->slug,
                 'icon' => $article->category->icon,
             ] : null,
+
             'user' => $article->user ? [
                 'id' => $article->user->id,
                 'name' => $article->user->name,
                 'email' => $article->user->email,
                 'avatar' => $article->user->avatar,
                 'role' => $article->user->role,
-                'position' => $article->user->position
+                'position' => $article->user->position,
+                'avatar_url' => $article->user->avatar_url
             ] : null,
         ];
     }
 
-    /**
-     * Update article rating average
-     */
     private function updateArticleRating(Article $article)
     {
         $ratings = $article->ratings()
@@ -251,5 +328,35 @@ class ArticleController extends Controller
                 'Content-Type' => 'application/pdf',
             ]
         );
+    }
+
+    public function indexPenulis()
+    {
+        $penulis = User::select('users.*')
+            ->withCount(['articles' => function ($query) {
+                $query->where('status', 'published');
+            }])
+            ->where('role', 'editor')
+            ->get()
+            ->filter(function ($penulis) {
+                return $penulis->articles_count > 0;
+            })
+            ->sortByDesc('articles_count')
+            ->values()
+            ->map(function ($penulis) {
+                return [
+                    'id' => $penulis->id,
+                    'name' => $penulis->name,
+                    'position' => $penulis->position,
+                    'role' => $penulis->role,
+                    'avatar' => $penulis->avatar,
+                    'moto' => $penulis->moto,
+                    'articles_count' => (int) $penulis->articles_count,
+                    'created_at' => $penulis->created_at,
+                    'updated_at' => $penulis->updated_at,
+                ];
+            });
+
+        return response()->json($penulis);
     }
 }
