@@ -386,6 +386,136 @@ class ArticleGalleryController extends Controller
      * @param Request $request
      * @return \Illuminate\Http\JsonResponse
      */
+    public function uploadImage(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|image|mimes:jpeg,png,jpg,gif|max:5120',
+            'article_id' => 'nullable|exists:articles,id',
+            'alt_text' => 'nullable|string|max:255',
+            'caption' => 'nullable|string|max:500',
+            'is_primary' => 'nullable|boolean',
+            'session_key' => 'nullable|string'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $image = $request->file('file');
+            $articleId = $request->input('article_id');
+            $sessionKey = $request->input('session_key', session()->getId());
+
+            // Generate unique filename
+            $filename = time() . '_' . Str::random(10) . '.' . $image->getClientOriginalExtension();
+
+            // Create directory path
+            if ($articleId) {
+                $directory = "articles/{$articleId}/gallery";
+            } else {
+                // Temporary storage berdasarkan session
+                $directory = "temp/articles/{$sessionKey}/gallery";
+            }
+
+            // Store the image
+            $path = $image->storeAs($directory, $filename, 'public');
+            $imagePath = storage_path('app/public/' . $path);
+
+            // Get image dimensions
+            $width = $height = null;
+            try {
+                $imageInfo = @getimagesize($imagePath);
+                if ($imageInfo !== false) {
+                    $width = $imageInfo[0];
+                    $height = $imageInfo[1];
+
+                    // Optimize large images
+                    if ($width > 1920 || $height > 1080) {
+                        $manager = new ImageManager('gd');
+                        $img = $manager->read($imagePath);
+                        $img->scaleDown(width: 1920, height: 1080); // resize dengan aspect ratio otomatis
+                        $img->save($imagePath, quality: 85);
+                        // $img = Image::make($imagePath);
+                        // $img->resize(1920, 1080, function ($constraint) {
+                        //     $constraint->aspectRatio();
+                        //     $constraint->upsize();
+                        // });
+                        // $img->save($imagePath, 85);
+
+                        $newImageInfo = @getimagesize($imagePath);
+                        if ($newImageInfo !== false) {
+                            $width = $newImageInfo[0];
+                            $height = $newImageInfo[1];
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Failed to process image: ' . $e->getMessage());
+            }
+
+            // Create gallery record
+            $gallery = ArticleGallery::create([
+                'article_id' => $articleId, // null jika temporary
+                'session_key' => $articleId ? null : $sessionKey, // simpan session key untuk temporary
+                'filename' => $filename,
+                'original_name' => $image->getClientOriginalName(),
+                'path' => $path,
+                'url' => Storage::url($path),
+                'mime_type' => $image->getMimeType(),
+                'size' => $image->getSize(),
+                'width' => $width,
+                'height' => $height,
+                'alt_text' => $request->input('alt_text'),
+                'caption' => $request->input('caption'),
+                'is_primary' => $request->boolean('is_primary', false),
+                'uploaded_by' => auth()->id(),
+                'is_temporary' => !$articleId // flag untuk temporary
+            ]);
+
+            // Handle primary image logic
+            if ($gallery->is_primary && $articleId) {
+                ArticleGallery::where('article_id', $articleId)
+                    ->where('id', '!=', $gallery->id)
+                    ->update(['is_primary' => false]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Image uploaded successfully',
+                'data' => [
+                    'id' => $gallery->id,
+                    'url' => $gallery->url,
+                    'name' => $gallery->original_name,
+                    'size' => $gallery->size,
+                    'formatted_size' => $this->formatFileSize($gallery->size),
+                    'dimensions' => $width && $height ? "{$width}x{$height}" : null,
+                    'alt_text' => $gallery->alt_text,
+                    'caption' => $gallery->caption,
+                    'is_primary' => $gallery->is_primary,
+                    'is_temporary' => $gallery->is_temporary,
+                    'session_key' => $sessionKey,
+                    'created_at' => $gallery->created_at->toISOString()
+                ]
+            ], 201);
+
+        } catch (\Exception $e) {
+            \Log::error('Image upload failed: ' . $e->getMessage());
+
+            if (isset($path) && Storage::disk('public')->exists($path)) {
+                Storage::disk('public')->delete($path);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Upload failed: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function bulkUpload(Request $request)
     {
         $validator = Validator::make($request->all(), [

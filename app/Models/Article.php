@@ -91,7 +91,6 @@ class Article extends Model
             return true;
         }
 
-        // ✅ PERBAIKAN: Gunakan nama kolom yang benar
         $hasDivisionAccess = !empty($allowedDivisions)
             && in_array($user->divisi_id, $allowedDivisions);
 

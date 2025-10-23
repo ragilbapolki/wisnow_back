@@ -7,11 +7,12 @@ use App\Http\Controllers\Api\{
     CategoryController,
     AuthController,
     ArticleGalleryController,
-    UserController
+    UserController,
+    DivisionController
 };
 use App\Http\Controllers\Api\Admin\{
     DashboardController,
-    DivisionController,
+    DivisionController as AdminDivisionController,
     ArticleController as AdminArticleController,
     CategoryController as AdminCategoryController,
     UserController as AdminUserController,
@@ -29,14 +30,19 @@ Route::prefix('v1')->group(function () {
     // Articles
     Route::get('articles', [ArticleController::class, 'index']);
     Route::middleware('auth:sanctum')->group(function () {
+        Route::get('view/articles/{slug}', [ArticleController::class, 'showSlug']);
         Route::get('articles/{slug}', [ArticleController::class, 'show']);
         Route::get('editor/articles', [ArticleController::class, 'indexEditor']);
+        Route::get('editor/articles/{id}', [ArticleController::class, 'showEditor']);
+        Route::post('editor/articles', [ArticleController::class, 'storeEditor']);
     });
 
     Route::get('articles/{article}/download', [ArticleController::class, 'downloadAttachment']);
 
     // Categories
     Route::get('categories', [CategoryController::class, 'index']);
+    Route::get('divisions', [DivisionController::class, 'index']);
+    Route::post('upload-image', [ArticleGalleryController::class, 'uploadImage']);
     Route::get('users/penulis', [ArticleController::class, 'indexPenulis']);
 
     // Authentication
@@ -64,6 +70,7 @@ Route::prefix('v1')->group(function () {
 
         // Article interactions
         Route::post('articles/{article}/rate', [ArticleController::class, 'rate']);
+        Route::get('/articles/{article}/rating-stats', [ArticleController::class, 'getRatingStats']);
         Route::post('articles/gallery/upload', [ArticleController::class, 'uploadGallery']);
 
         Route::prefix('profile')->group(function () {
@@ -114,6 +121,6 @@ Route::prefix('v1')->group(function () {
             Route::post('/{user}/avatar', [UserController::class, 'uploadAvatar']);
             Route::delete('/{user}/avatar', [UserController::class, 'deleteAvatar']);
         });
-        Route::apiResource('divisions', DivisionController::class);
+        Route::apiResource('divisions', AdminDivisionController::class);
     });
 });
