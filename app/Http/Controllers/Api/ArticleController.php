@@ -235,6 +235,97 @@ class ArticleController extends Controller
         ]);
     }
 
+    public function updateEditor(Request $request, Article $article)
+    {
+        $request->validate([
+            'title' => 'required|string|max:255',
+            'content' => 'required|string',
+            'type' => 'required|in:SOP,Kebijakan,Panduan',
+            'category_id' => 'required|exists:categories,id',
+            'status' => 'required|in:draft,published',
+            'visibility' => 'required|in:public,private',
+            'divisions' => 'required_if:visibility,private|array',
+            'divisions.*' => 'exists:m_division,id',
+            'departments' => 'required_if:visibility,private|array',
+            'departments.*' => 'exists:m_division,id',
+            'document_type' => 'nullable|string',
+            'images' => 'nullable|array',
+            'images.*' => 'integer|exists:article_galleries,id',
+            'attachment' => 'nullable|file|mimes:pdf|max:10240',
+            'remove_attachment' => 'nullable|boolean'
+        ]);
+
+        // Handle attachment removal
+        if ($request->remove_attachment && $article->attachment_path) {
+            Storage::disk('public')->delete($article->attachment_path);
+            $article->attachment_path = null;
+            $article->attachment_name = null;
+            $article->attachment_size = null;
+        }
+
+        // Handle new attachment upload
+        if ($request->hasFile('attachment')) {
+            if ($article->attachment_path) {
+                Storage::disk('public')->delete($article->attachment_path);
+            }
+
+            $file = $request->file('attachment');
+            $fileName = time() . '_' . Str::slug(pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME)) . '.pdf';
+            $attachmentPath = $file->storeAs('attachments', $fileName, 'public');
+
+            $article->attachment_path = $attachmentPath;
+            $article->attachment_name = $file->getClientOriginalName();
+            $article->attachment_size = $file->getSize();
+        }
+
+        $article->update([
+            'title' => $request->title,
+            'description' => $request->description,
+            'content' => $request->content,
+            'type' => $request->type,
+            'category_id' => $request->category_id,
+            'status' => $request->status,
+            'visibility' => $request->visibility,
+            'document_type' => $request->document_type,
+            'published_at' => $request->status === 'published' && !$article->published_at ? now() : $article->published_at
+        ]);
+
+        // Sync divisions and departments
+        if ($request->visibility === 'private') {
+            if ($request->has('divisions')) {
+                $article->divisions()->sync($request->divisions);
+            }
+            if ($request->has('departments')) {
+                $article->departments()->sync($request->departments);
+            }
+        } else {
+            // Clear divisions and departments if changed to public
+            $article->divisions()->detach();
+            $article->departments()->detach();
+        }
+
+        // Update image relationships if provided
+        if ($request->has('images')) {
+            ArticleGallery::where('article_id', $article->id)
+                ->whereNotIn('id', $request->images ?? [])
+                ->update(['article_id' => null]);
+
+            if (is_array($request->images) && count($request->images) > 0) {
+                ArticleGallery::whereIn('id', $request->images)
+                    ->update(['article_id' => $article->id]);
+            }
+        }
+
+        // Load fresh data
+        $article->load(['category', 'user', 'divisions', 'departments']);
+        $article->gallery_count = $article->galleries()->count();
+
+        return response()->json([
+            'success' => true,
+            'data' => $article
+        ]);
+    }
+
     /**
      * Format article response dengan type casting yang konsisten
      */

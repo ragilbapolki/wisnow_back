@@ -8,7 +8,8 @@ use App\Http\Controllers\Api\{
     AuthController,
     ArticleGalleryController,
     UserController,
-    DivisionController
+    DivisionController,
+    ChatController
 };
 use App\Http\Controllers\Api\Admin\{
     DashboardController,
@@ -27,37 +28,31 @@ use App\Http\Controllers\Api\Admin\{
 
 // API v1
 Route::prefix('v1')->group(function () {
+    Route::post('/chat', [ChatController::class, 'ask']);
     // Articles
     Route::get('articles', [ArticleController::class, 'index']);
     Route::middleware('auth:sanctum')->group(function () {
-        Route::get('view/articles/{slug}', [ArticleController::class, 'showSlug']);
+        Route::prefix('view')->group(function () {
+            Route::get('articles/{slug}', [ArticleController::class, 'showSlug']);
+        });
         Route::get('articles/{slug}', [ArticleController::class, 'show']);
-        Route::get('editor/articles', [ArticleController::class, 'indexEditor']);
-        Route::get('editor/articles/{id}', [ArticleController::class, 'showEditor']);
-        Route::post('editor/articles', [ArticleController::class, 'storeEditor']);
+        Route::prefix('editor')->group(function () {
+            Route::get('articles', [ArticleController::class, 'indexEditor']);
+            Route::get('articles/{id}', [ArticleController::class, 'showEditor']);
+            Route::post('articles', [ArticleController::class, 'storeEditor']);
+            Route::put('articles/{article}', [ArticleController::class, 'updateEditor']);
+            Route::post('articles/gallery/cleanup-temporary', [ArticleGalleryController::class, 'cleanupTemporary']);
+        });
     });
-
     Route::get('articles/{article}/download', [ArticleController::class, 'downloadAttachment']);
-
-    // Categories
     Route::get('categories', [CategoryController::class, 'index']);
     Route::get('divisions', [DivisionController::class, 'index']);
     Route::post('upload-image', [ArticleGalleryController::class, 'uploadImage']);
     Route::get('users/penulis', [ArticleController::class, 'indexPenulis']);
-
-    // Authentication
     Route::post('login', [AuthController::class, 'login']);
     Route::post('register', [AuthController::class, 'register']);
-
     Route::get('articles/{articleId}/gallery', [ArticleGalleryController::class, 'getArticleImages']);
-
-    /** -----------------------
-     *  Protected Routes
-     *  -----------------------
-     */
     Route::middleware('auth:sanctum')->group(function () {
-
-        // User info
         Route::get('user', function (Request $request) {
             return response()->json([
                 'status' => 'success',

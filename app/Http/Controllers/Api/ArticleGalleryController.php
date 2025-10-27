@@ -386,6 +386,55 @@ class ArticleGalleryController extends Controller
      * @param Request $request
      * @return \Illuminate\Http\JsonResponse
      */
+    public function cleanupTemporary(Request $request)
+    {
+        $request->validate([
+            'session_key' => 'required|string'
+        ]);
+
+        try {
+            $sessionKey = $request->session_key;
+
+            // Get temporary images
+            $temporaryImages = ArticleGallery::where('session_key', $sessionKey)
+                ->where('is_temporary', true)
+                ->whereNull('article_id')
+                ->get();
+
+            $deletedCount = 0;
+
+            foreach ($temporaryImages as $image) {
+                // Delete file from storage
+                if ($image->path && Storage::disk('public')->exists($image->path)) {
+                    Storage::disk('public')->delete($image->path);
+                }
+
+                // Delete database record
+                $image->delete();
+                $deletedCount++;
+            }
+
+            // Clean up temporary directory
+            $tempDir = "temp/articles/{$sessionKey}";
+            if (Storage::disk('public')->exists($tempDir)) {
+                Storage::disk('public')->deleteDirectory($tempDir);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => "Cleaned up {$deletedCount} temporary images",
+                'deleted_count' => $deletedCount
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Failed to cleanup temporary images: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Cleanup failed: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function uploadImage(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -572,54 +621,7 @@ class ArticleGalleryController extends Controller
         ], $totalErrors > 0 ? 207 : 201); // 207 = Multi-Status
     }
 
-    public function cleanupTemporary(Request $request)
-    {
-        $request->validate([
-            'session_key' => 'required|string'
-        ]);
 
-        try {
-            $sessionKey = $request->session_key;
-
-            // Get temporary images
-            $temporaryImages = ArticleGallery::where('session_key', $sessionKey)
-                ->where('is_temporary', true)
-                ->whereNull('article_id')
-                ->get();
-
-            $deletedCount = 0;
-
-            foreach ($temporaryImages as $image) {
-                // Delete file from storage
-                if ($image->path && Storage::disk('public')->exists($image->path)) {
-                    Storage::disk('public')->delete($image->path);
-                }
-
-                // Delete database record
-                $image->delete();
-                $deletedCount++;
-            }
-
-            // Clean up temporary directory
-            $tempDir = "temp/articles/{$sessionKey}";
-            if (Storage::disk('public')->exists($tempDir)) {
-                Storage::disk('public')->deleteDirectory($tempDir);
-            }
-
-            return response()->json([
-                'success' => true,
-                'message' => "Cleaned up {$deletedCount} temporary images",
-                'deleted_count' => $deletedCount
-            ]);
-
-        } catch (\Exception $e) {
-            \Log::error('Failed to cleanup temporary images: ' . $e->getMessage());
-            return response()->json([
-                'success' => false,
-                'message' => 'Cleanup failed: ' . $e->getMessage()
-            ], 500);
-        }
-    }
 
     public function cleanupExpiredTemporary()
     {

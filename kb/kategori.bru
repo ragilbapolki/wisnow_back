@@ -1,0 +1,15 @@
+meta {
+  name: kategori
+  type: http
+  seq: 2
+}
+
+get {
+  url: http://172.27.13.11:8081/api/v1/categories
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}
