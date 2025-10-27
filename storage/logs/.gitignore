@@ -1,2 +1,5 @@
 *
 !.gitignore
+
+config/cors.php
+app/Http/Middleware/
