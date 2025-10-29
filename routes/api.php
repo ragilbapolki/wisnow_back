@@ -31,6 +31,9 @@ Route::prefix('v1')->group(function () {
     Route::post('/chat', [ChatController::class, 'ask']);
     // Articles
     Route::get('articles', [ArticleController::class, 'index']);
+    Route::get('users/penulis', [ArticleController::class, 'indexPenulis']);
+    Route::get('/users/{id}', [UserController::class, 'show']);
+    Route::get('/users/{id}/articles', [UserController::class, 'articles']);
     Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('view')->group(function () {
             Route::get('articles/{slug}', [ArticleController::class, 'showSlug']);
@@ -48,7 +51,6 @@ Route::prefix('v1')->group(function () {
     Route::get('categories', [CategoryController::class, 'index']);
     Route::get('divisions', [DivisionController::class, 'index']);
     Route::post('upload-image', [ArticleGalleryController::class, 'uploadImage']);
-    Route::get('users/penulis', [ArticleController::class, 'indexPenulis']);
     Route::post('login', [AuthController::class, 'login']);
     Route::post('register', [AuthController::class, 'register']);
     Route::get('articles/{articleId}/gallery', [ArticleGalleryController::class, 'getArticleImages']);
@@ -69,7 +71,7 @@ Route::prefix('v1')->group(function () {
         Route::post('articles/gallery/upload', [ArticleController::class, 'uploadGallery']);
 
         Route::prefix('profile')->group(function () {
-            Route::get('/', [UserController::class, 'show']);
+            Route::get('/', [UserController::class, 'showProfile']);
             Route::put('/', [UserController::class, 'update']);
             Route::put('/password', [UserController::class, 'updatePassword']);
             Route::post('/avatar', [UserController::class, 'uploadAvatar']);

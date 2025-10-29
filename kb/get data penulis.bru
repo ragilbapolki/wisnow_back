@@ -1,0 +1,15 @@
+meta {
+  name: get data penulis
+  type: http
+  seq: 4
+}
+
+get {
+  url: http://localhost:8000/api/v1/users/5
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}

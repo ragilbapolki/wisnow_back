@@ -8,13 +8,39 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use App\Models\Article;
 
 class UserController extends Controller
 {
 
-    public function show(User $user)
+    public function show($id)
     {
-        $user = User::with(['department', 'division'])
+        try {
+            $user = User::with(['department', 'division'])
+                ->findOrFail($id);
+
+            if ($user->avatar && !str_starts_with($user->avatar, 'http')) {
+                $user->avatar_url = url('storage/' . $user->avatar);
+            } else {
+                $user->avatar_url = $user->avatar;
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => $user
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User not found'
+            ], 404);
+        }
+    }
+
+    public function showProfile(User $user)
+    {
+            $user = User::with(['department', 'division'])
             ->where('id', auth()->id())
             ->firstOrFail();
 
@@ -22,6 +48,42 @@ class UserController extends Controller
             'success' => true,
             'data' => $user
         ]);
+    }
+
+    public function articles($id)
+    {
+        try {
+            $user = User::findOrFail($id);
+
+            $articles = Article::with(['category', 'user'])
+                ->where('user_id', $id)
+                ->where('status', 'published')
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            $articles->each(function ($article) {
+                $ratings = $article->ratings()->get();
+
+                if ($ratings->count() > 0) {
+                    $article->rating = $ratings->avg('rating');
+                    $article->rating_count = $ratings->count();
+                } else {
+                    $article->rating = 0;
+                    $article->rating_count = 0;
+                }
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $articles
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to load articles'
+            ], 500);
+        }
     }
 
     public function update(Request $request, User $user)
